@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/app_logger.dart';
+
 class TaskFormResult {
   final String title;
   final String description;
@@ -18,9 +20,10 @@ class TaskFormDialog extends StatefulWidget {
 }
 
 class _TaskFormDialogState extends State<TaskFormDialog> {
-  final _titleController = TextEditingController();
-  final _descriptionController = TextEditingController();
-  final _formKey = GlobalKey<FormState>();
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _descriptionController = TextEditingController();
+
+  String? _titleError;
 
   @override
   void dispose() {
@@ -29,14 +32,26 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
     super.dispose();
   }
 
-  void _submit() {
-    if (!_formKey.currentState!.validate()) return;
+  void _save() {
+    final title = _titleController.text.trim();
+    final description = _descriptionController.text.trim();
 
-    Navigator.pop(
-      context,
+    AppLogger.debug('Intentando guardar tarea desde TaskFormDialog');
+
+    if (title.isEmpty) {
+      AppLogger.warning('Validación fallida: título vacío');
+
+      setState(() {
+        _titleError = 'El título no puede estar vacío.';
+      });
+
+      return;
+    }
+
+    Navigator.of(context).pop(
       TaskFormResult(
-        title: _titleController.text.trim(),
-        description: _descriptionController.text.trim(),
+        title: title,
+        description: description,
       ),
     );
   }
@@ -45,41 +60,45 @@ class _TaskFormDialogState extends State<TaskFormDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Nueva tarea'),
-      content: Form(
-        key: _formKey,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextFormField(
-              controller: _titleController,
-              decoration: const InputDecoration(
-                labelText: 'Título',
-              ),
-              validator: (value) {
-                if (value == null || value.trim().isEmpty) {
-                  return 'Ingrese un título';
-                }
-                return null;
-              },
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _titleController,
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: 'Título',
+              errorText: _titleError,
             ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _descriptionController,
-              decoration: const InputDecoration(
-                labelText: 'Descripción',
-              ),
-              maxLines: 3,
+            onChanged: (_) {
+              if (_titleError != null) {
+                setState(() {
+                  _titleError = null;
+                });
+              }
+            },
+            onSubmitted: (_) => _save(),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _descriptionController,
+            decoration: const InputDecoration(
+              labelText: 'Descripción',
             ),
-          ],
-        ),
+            maxLines: 3,
+          ),
+        ],
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: () {
+            AppLogger.debug('Creación de tarea cancelada desde dialog');
+            Navigator.of(context).pop();
+          },
           child: const Text('Cancelar'),
         ),
-        ElevatedButton(
-          onPressed: _submit,
+        FilledButton(
+          onPressed: _save,
           child: const Text('Guardar'),
         ),
       ],

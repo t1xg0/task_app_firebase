@@ -22,27 +22,33 @@ class TaskTile extends StatelessWidget {
         ),
         title: Text(
           task.title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
           style: TextStyle(
-            decoration: task.completed ? TextDecoration.lineThrough : null,
+            decoration: task.completed
+                ? TextDecoration.lineThrough
+                : TextDecoration.none,
           ),
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(task.description),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                Text(
-                  'Actualizada: ${task.updatedAt.toLocal()}',
-                  style: const TextStyle(fontSize: 12),
-                ),
-                const SizedBox(width: 8),
-                if (task.pendingSync)
-                  const Chip(
-                    label: Text('Sync pendiente'),
-                  ),
-              ],
+            if (task.description.isNotEmpty)
+              Text(
+                task.description,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            const SizedBox(height: 4),
+            Text(
+              task.pendingSync
+                  ? 'Sincronización pendiente'
+                  : 'Sincronizada',
+              style: TextStyle(
+                color: task.pendingSync
+                    ? Theme.of(context).colorScheme.error
+                    : Theme.of(context).colorScheme.primary,
+              ),
             ),
           ],
         ),
