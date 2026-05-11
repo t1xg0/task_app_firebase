@@ -1,5 +1,9 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+import '../services/auth_service.dart';
+import '../services/crash/crash_service.dart';
 
 import '../models/task_model.dart';
 import '../services/app_logger.dart';
@@ -9,10 +13,16 @@ import '../widgets/task_tile.dart';
 
 class TasksPage extends StatefulWidget {
   final TaskRepository repository;
+  final User? user;
+  final AuthService? authService;
+  final CrashService? crashService;
 
   const TasksPage({
     super.key,
     required this.repository,
+    this.user,
+    this.authService,
+    this.crashService,
   });
 
   @override
@@ -60,6 +70,7 @@ class _TasksPageState extends State<TasksPage> {
     }
   }
 
+  /// Forces the StreamBuilder to recreate its subscription to the local data.
   void _reloadStream() {
     AppLogger.info('Recargando StreamBuilder de tareas');
 
@@ -81,10 +92,7 @@ class _TasksPageState extends State<TasksPage> {
       return;
     }
 
-    await _createTask(
-      title: result.title,
-      description: result.description,
-    );
+    await _createTask(title: result.title, description: result.description);
   }
 
   Future<void> _createTask({
@@ -94,10 +102,7 @@ class _TasksPageState extends State<TasksPage> {
     try {
       AppLogger.info('Creando tarea desde la pantalla');
 
-      await widget.repository.addTask(
-        title: title,
-        description: description,
-      );
+      await widget.repository.addTask(title: title, description: description);
 
       _showMessage('Tarea creada correctamente.');
     } catch (error, stackTrace) {
@@ -163,6 +168,45 @@ class _TasksPageState extends State<TasksPage> {
     }
   }
 
+  /// Shows the signed-in user before the task list for quick session context.
+  Widget _buildUserCard() {
+    final user = widget.user;
+
+    if (user == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Card(
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: ListTile(
+        leading: const CircleAvatar(child: Icon(Icons.person)),
+        title: Text(user.email ?? 'Usuario autenticado'),
+        subtitle: Text(
+          'UID: ${user.uid}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _logout() async {
+    await widget.authService?.logout();
+  }
+
+  Future<void> _simulateNonFatalCrashlyticsError() async {
+    await widget.crashService?.simulateNonFatalError();
+
+    _showMessage(
+      'Error no fatal registrado. Revisa Firebase Crashlytics o la consola.',
+    );
+  }
+
+  void _simulateFatalCrash() {
+    widget.crashService?.simulateFatalCrash();
+  }
+
+  /// Runs QA-only actions from the debug menu with consistent logging.
   Future<void> _runQaAction(
     String successMessage,
     Future<void> Function() action,
@@ -215,13 +259,12 @@ class _TasksPageState extends State<TasksPage> {
   void _showMessage(String message) {
     if (!mounted) return;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  /// Debug-only menu used to exercise sync, loading, and Crashlytics paths.
   Widget _buildQaMenu() {
     if (!kDebugMode) {
       return const SizedBox.shrink();
@@ -282,6 +325,13 @@ class _TasksPageState extends State<TasksPage> {
           _reloadStream();
           _showMessage('Stream recargado.');
         }
+        if (value == 'crashlytics_non_fatal') {
+          _simulateNonFatalCrashlyticsError();
+        }
+
+        if (value == 'crashlytics_fatal') {
+          _simulateFatalCrash();
+        }
       },
       itemBuilder: (context) {
         return const [
@@ -309,6 +359,14 @@ class _TasksPageState extends State<TasksPage> {
             value: 'ui_error',
             child: Text('QA: simular error de UI'),
           ),
+          PopupMenuItem(
+            value: 'crashlytics_non_fatal',
+            child: Text('QA: registrar error no fatal Crashlytics'),
+          ),
+          PopupMenuItem(
+            value: 'crashlytics_fatal',
+            child: Text('QA: forzar crash fatal Crashlytics'),
+          ),
           PopupMenuDivider(),
           PopupMenuItem(
             value: 'refresh_remote',
@@ -335,11 +393,14 @@ class _TasksPageState extends State<TasksPage> {
           title: const Text('TaskSync RC'),
           actions: [
             _buildQaMenu(),
+            IconButton(
+              tooltip: 'Cerrar sesión',
+              onPressed: widget.authService == null ? null : _logout,
+              icon: const Icon(Icons.logout),
+            ),
           ],
         ),
-        body: const _LoadingView(
-          message: 'Cargando tareas...',
-        ),
+        body: const _LoadingView(message: 'Cargando tareas...'),
       );
     }
 
@@ -349,6 +410,11 @@ class _TasksPageState extends State<TasksPage> {
           title: const Text('TaskSync RC'),
           actions: [
             _buildQaMenu(),
+            IconButton(
+              tooltip: 'Cerrar sesión',
+              onPressed: widget.authService == null ? null : _logout,
+              icon: const Icon(Icons.logout),
+            ),
           ],
         ),
         body: _ErrorView(
@@ -373,6 +439,11 @@ class _TasksPageState extends State<TasksPage> {
             icon: const Icon(Icons.sync),
           ),
           _buildQaMenu(),
+          IconButton(
+            tooltip: 'Cerrar sesión',
+            onPressed: _logout,
+            icon: const Icon(Icons.logout),
+          ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -380,53 +451,60 @@ class _TasksPageState extends State<TasksPage> {
         icon: const Icon(Icons.add),
         label: const Text('Nueva tarea'),
       ),
-      body: StreamBuilder<List<TaskModel>>(
-        key: ValueKey(_reloadKey),
-        stream: widget.repository.watchTasks(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const _LoadingView(
-              message: 'Consultando base local...',
-            );
-          }
+      body: Column(
+        children: [
+          _buildUserCard(),
+          Expanded(
+            child: StreamBuilder<List<TaskModel>>(
+              key: ValueKey(_reloadKey),
+              stream: widget.repository.watchTasks(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const _LoadingView(
+                    message: 'Consultando base local...',
+                  );
+                }
 
-          if (snapshot.hasError) {
-            AppLogger.error(
-              'Error en StreamBuilder de tareas',
-              error: snapshot.error,
-              stackTrace: snapshot.stackTrace,
-            );
+                if (snapshot.hasError) {
+                  AppLogger.error(
+                    'Error en StreamBuilder de tareas',
+                    error: snapshot.error,
+                    stackTrace: snapshot.stackTrace,
+                  );
 
-            return _ErrorView(
-              message: 'No se pudieron cargar las tareas locales.',
-              onRetry: _reloadStream,
-            );
-          }
+                  return _ErrorView(
+                    message: 'No se pudieron cargar las tareas locales.',
+                    onRetry: _reloadStream,
+                  );
+                }
 
-          final tasks = snapshot.data ?? [];
+                final tasks = snapshot.data ?? [];
 
-          if (tasks.isEmpty) {
-            return _EmptyView(
-              message: 'Aún no hay tareas registradas.',
-              actionLabel: 'Crear primera tarea',
-              onAction: _openCreateTaskDialog,
-            );
-          }
+                if (tasks.isEmpty) {
+                  return _EmptyView(
+                    message: 'Aún no hay tareas registradas.',
+                    actionLabel: 'Crear primera tarea',
+                    onAction: _openCreateTaskDialog,
+                  );
+                }
 
-          return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-            itemCount: tasks.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
-            itemBuilder: (context, index) {
-              final task = tasks[index];
+                return ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+                  itemCount: tasks.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final task = tasks[index];
 
-              return TaskTile(
-                task: task,
-                onToggle: () => _toggleTask(task),
-              );
-            },
-          );
-        },
+                    return TaskTile(
+                      task: task,
+                      onToggle: () => _toggleTask(task),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -435,9 +513,7 @@ class _TasksPageState extends State<TasksPage> {
 class _LoadingView extends StatelessWidget {
   final String message;
 
-  const _LoadingView({
-    required this.message,
-  });
+  const _LoadingView({required this.message});
 
   @override
   Widget build(BuildContext context) {
@@ -449,10 +525,7 @@ class _LoadingView extends StatelessWidget {
           children: [
             const CircularProgressIndicator(),
             const SizedBox(height: 16),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-            ),
+            Text(message, textAlign: TextAlign.center),
           ],
         ),
       ),
@@ -465,11 +538,7 @@ class _EmptyView extends StatelessWidget {
   final String? actionLabel;
   final VoidCallback? onAction;
 
-  const _EmptyView({
-    required this.message,
-    this.actionLabel,
-    this.onAction,
-  });
+  const _EmptyView({required this.message, this.actionLabel, this.onAction});
 
   @override
   Widget build(BuildContext context) {
@@ -479,15 +548,9 @@ class _EmptyView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.inbox_outlined,
-              size: 56,
-            ),
+            const Icon(Icons.inbox_outlined, size: 56),
             const SizedBox(height: 12),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-            ),
+            Text(message, textAlign: TextAlign.center),
             if (actionLabel != null && onAction != null) ...[
               const SizedBox(height: 16),
               FilledButton.icon(
@@ -507,10 +570,7 @@ class _ErrorView extends StatelessWidget {
   final String message;
   final VoidCallback onRetry;
 
-  const _ErrorView({
-    required this.message,
-    required this.onRetry,
-  });
+  const _ErrorView({required this.message, required this.onRetry});
 
   @override
   Widget build(BuildContext context) {
@@ -520,15 +580,9 @@ class _ErrorView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(
-              Icons.error_outline,
-              size: 56,
-            ),
+            const Icon(Icons.error_outline, size: 56),
             const SizedBox(height: 12),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-            ),
+            Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: onRetry,

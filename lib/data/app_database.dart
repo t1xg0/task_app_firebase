@@ -6,15 +6,22 @@ import '../models/task_model.dart';
 
 part 'app_database.g.dart';
 
+/// Local Drift table that stores tasks and their pending sync state.
 class Tasks extends Table {
   IntColumn get id => integer().autoIncrement()();
+
   TextColumn get title => text()();
+
   TextColumn get description => text()();
+
   BoolColumn get completed => boolean().withDefault(const Constant(false))();
+
   DateTimeColumn get updatedAt => dateTime()();
+
   BoolColumn get pendingSync => boolean().withDefault(const Constant(true))();
 }
 
+/// Local database wrapper used by the repository for offline-first storage.
 @DriftDatabase(tables: [Tasks])
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor]) : super(executor ?? _openConnection());
@@ -25,9 +32,13 @@ class AppDatabase extends _$AppDatabase {
   static QueryExecutor _openConnection() {
     return driftDatabase(
       name: 'task_app_db',
+
+      // Native platforms store the database in the app support directory.
       native: const DriftNativeOptions(
         databaseDirectory: getApplicationSupportDirectory,
       ),
+
+      // Web uses Drift's generated worker and sqlite3 WASM files.
       web: DriftWebOptions(
         sqlite3Wasm: Uri.parse('sqlite3.wasm'),
         driftWorker: Uri.parse('drift_worker.dart.js'),
@@ -35,6 +46,7 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  /// Converts generated Drift rows into the app's domain model.
   TaskModel _mapTaskToModel(Task row) {
     return TaskModel(
       id: row.id,
@@ -48,17 +60,14 @@ class AppDatabase extends _$AppDatabase {
 
   Stream<List<TaskModel>> watchTasks() {
     final query = select(tasks)
-      ..orderBy([
-        (t) => OrderingTerm.desc(t.updatedAt),
-      ]);
+      ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]);
 
-    return query.watch().map(
-      (rows) => rows.map(_mapTaskToModel).toList(),
-    );
+    return query.watch().map((rows) => rows.map(_mapTaskToModel).toList());
   }
 
   Future<List<TaskModel>> getAllTasks() async {
     final rows = await select(tasks).get();
+
     return rows.map(_mapTaskToModel).toList();
   }
 
@@ -105,15 +114,16 @@ class AppDatabase extends _$AppDatabase {
   }
 
   Future<List<TaskModel>> getPendingTasks() async {
-    final rows = await (select(tasks)..where((t) => t.pendingSync.equals(true))).get();
+    final rows = await (select(
+      tasks,
+    )..where((t) => t.pendingSync.equals(true))).get();
+
     return rows.map(_mapTaskToModel).toList();
   }
 
   Future<void> markAsSynced(int id) async {
     await (update(tasks)..where((t) => t.id.equals(id))).write(
-      const TasksCompanion(
-        pendingSync: Value(false),
-      ),
+      const TasksCompanion(pendingSync: Value(false)),
     );
   }
 

@@ -31,14 +31,22 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
+  # UI polish and platform-style icons.
   cupertino_icons: ^1.0.8
+
+  # Firebase backend services used for auth, data, analytics, and crash reports.
   firebase_core: ^4.7.0
+  firebase_auth: ^6.1.0
   cloud_firestore: ^6.3.0
+  firebase_crashlytics: ^5.0.0
+  firebase_analytics: ^12.0.0
+
+  # Offline-first local persistence.
   drift: ^2.32.1
   drift_flutter: ^0.3.0
   path_provider: ^2.1.5
+
+  # Structured development logging.
   logger: ^2.5.0
 
 dev_dependencies:
@@ -51,6 +59,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  # Code generation for Drift tables and DAOs.
   drift_dev: ^2.32.1
   build_runner: ^2.13.1
 

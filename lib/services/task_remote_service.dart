@@ -1,20 +1,27 @@
-import 'dart:io';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../models/task_model.dart';
 import 'app_logger.dart';
 
-enum QaRemoteFailure {
-  none,
-  permissionDenied,
-  network,
-  unexpected,
+enum QaRemoteFailure { none, permissionDenied, network, unexpected }
+
+/// Lightweight exception used to simulate network failures in QA flows.
+class QaNetworkException implements Exception {
+  final String message;
+
+  const QaNetworkException(this.message);
+
+  @override
+  String toString() {
+    return 'QaNetworkException: $message';
+  }
 }
 
+/// Firestore adapter for reading and writing remote task records.
 class TaskRemoteService {
-  final CollectionReference<Map<String, dynamic>> _tasksRef =
-      FirebaseFirestore.instance.collection('tasks');
+  final CollectionReference<Map<String, dynamic>> _tasksRef = FirebaseFirestore
+      .instance
+      .collection('tasks');
 
   QaRemoteFailure _nextFailure = QaRemoteFailure.none;
 
@@ -30,6 +37,7 @@ class TaskRemoteService {
     _nextFailure = QaRemoteFailure.unexpected;
   }
 
+  /// Throws one queued QA failure, then resets the queue for the next call.
   void _throwFailureIfNeeded() {
     final failure = _nextFailure;
     _nextFailure = QaRemoteFailure.none;
@@ -43,7 +51,7 @@ class TaskRemoteService {
     }
 
     if (failure == QaRemoteFailure.network) {
-      throw const SocketException(
+      throw const QaNetworkException(
         'Simulación QA: no hay conexión a internet.',
       );
     }
@@ -57,9 +65,7 @@ class TaskRemoteService {
 
   Future<void> upsertTask(TaskModel task) async {
     if (task.id == null) {
-      AppLogger.warning(
-        'No se puede sincronizar una tarea sin id local',
-      );
+      AppLogger.warning('No se puede sincronizar una tarea sin id local');
       return;
     }
 
@@ -78,9 +84,9 @@ class TaskRemoteService {
         stackTrace: stackTrace,
       );
       rethrow;
-    } on SocketException catch (error, stackTrace) {
+    } on QaNetworkException catch (error, stackTrace) {
       AppLogger.error(
-        'Error de red guardando tarea remota',
+        'Error de red simulado guardando tarea remota',
         error: error,
         stackTrace: stackTrace,
       );
@@ -108,10 +114,7 @@ class TaskRemoteService {
       );
 
       return snapshot.docs.map((doc) {
-        return TaskModel.fromFirestore(
-          doc.data(),
-          id: int.parse(doc.id),
-        );
+        return TaskModel.fromFirestore(doc.data(), id: int.parse(doc.id));
       }).toList();
     } on FirebaseException catch (error, stackTrace) {
       AppLogger.error(
@@ -120,9 +123,9 @@ class TaskRemoteService {
         stackTrace: stackTrace,
       );
       rethrow;
-    } on SocketException catch (error, stackTrace) {
+    } on QaNetworkException catch (error, stackTrace) {
       AppLogger.error(
-        'Error de red consultando tareas remotas',
+        'Error de red simulado consultando tareas remotas',
         error: error,
         stackTrace: stackTrace,
       );
